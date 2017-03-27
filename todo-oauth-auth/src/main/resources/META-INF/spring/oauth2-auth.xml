@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+        xmlns:aop="http://www.springframework.org/schema/aop"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:sec="http://www.springframework.org/schema/security"
+        xmlns:tx="http://www.springframework.org/schema/tx"
+        xmlns:oauth2="http://www.springframework.org/schema/security/oauth2"
+        xsi:schemaLocation="http://www.springframework.org/schema/security
+            http://www.springframework.org/schema/security/spring-security.xsd
+            http://www.springframework.org/schema/security/oauth2
+            http://www.springframework.org/schema/security/spring-security-oauth2.xsd
+            http://www.springframework.org/schema/beans
+            http://www.springframework.org/schema/beans/spring-beans.xsd
+            http://www.springframework.org/schema/aop
+            http://www.springframework.org/schema/aop/spring-aop.xsd
+            http://www.springframework.org/schema/tx http://www.springframework.org/schema/tx/spring-tx.xsd">
+
+    <!-- チェックトークンエンドポイントへのアクセスはセキュリティの対象外とする -->
+    <sec:http pattern="/oauth/check_token" security="none" />
+
+    <!-- アクセストークン操作に関するエンドポイントへのセキュリティ設定を行うために、エンドポイントURLとして /api/v1/oauth/tokens/revoke をアクセス制御の対象とする -->
+    <!-- XML NamespaceでBasic認証を有効にした場合、Basic認証のRealm名にアプリケーションの内部情報が露呈してしまうため、適切な値を設定 -->
+    <sec:http pattern="/api/v1/oauth/tokens/revoke"
+        authentication-manager-ref="clientAuthenticationManager" realm="Realm">
+        <sec:http-basic />           <!-- クライアント認証にBasic認証を適用する -->
+        <sec:csrf disabled="true"/>  <!-- CSRF対策機能を無効化。OAuth2ではstateパラメータで正当性確認をする -->
+        <sec:intercept-url pattern="/**" access="isAuthenticated()"/>  <!-- エンドポイントURLの配下に対して、認証済みユーザーのみがアクセスできる権限を付与する -->
+    </sec:http>
+    
+    <!-- トークン取り消しに関するエンドポイントへのセキュリティ設定を行うために、エンドポイントURLとして  /oauth/tokens/revoke をアクセス制御の対象とする -->
+    <!-- デフォルトでは /oauth から始める authentication-manager-refにはクライアント認証用に定義したビーンを指定  -->
+    <!-- XML NamespaceでBasic認証を有効にした場合、Basic認証のRealm名にアプリケーションの内部情報が露呈してしまうため、適切な値を設定 -->
+    <sec:http pattern="/oauth/*token*/**"
+        authentication-manager-ref="clientAuthenticationManager" realm="Realm">
+        <sec:http-basic />           <!-- クライアント認証にBasic認証を適用する -->
+        <sec:csrf disabled="true"/>  <!-- CSRF対策機能を無効化。OAuth2ではstateパラメータで正当性確認をする -->
+        <sec:intercept-url pattern="/**" access="isAuthenticated()"/>  <!-- エンドポイントURLの配下に対して、認証済みユーザーのみがアクセスできる権限を付与する -->
+    </sec:http>
+    
+    <!-- 認可サーバの設定を定義を行う -->
+    <!-- token-endpoint-url : トークンエンドポイントのURL(デフォ : /oauth/token) -->
+    <!-- authorization-endpoint-url : 認可エンドポイントのURL(デフォ : /oauth/authorize) -->
+    <!-- client-details-service-ref : OAuthClientDetailsService のBeanを指定 -->
+    <!-- token-services-ref : 認可サーバが使用するTokenServiceを指定 -->
+    <!-- user-approval-handler-ref : ApprovalStoreUserApprovalHandlerのBeanを指定 -->
+    <!-- check-token-enabled : trueを指定することでCheckTokenEndpointがコンポーネントとして登録される -->
+    <!-- check-token-endpoint-url : CheckTokenEndpointのurl。デフォは/oauth/check_token -->
+    <oauth2:authorization-server
+        token-endpoint-url="/oauth/token"
+        authorization-endpoint-url="/oauth/authorize"
+        client-details-service-ref="clientDetailsService"
+        token-services-ref="tokenServices"
+        user-approval-handler-ref="userApprovalHandler"
+        check-token-endpoint-url="/oauth/check_token">
+        <oauth2:authorization-code 
+            authorization-code-services-ref="authorizationCodeServices"/> <!-- 認可コードグラントをサポート -->
+        <oauth2:implicit />  <!-- インプリシットグラントをサポート -->
+        <oauth2:refresh-token />  <!-- リフレッシュトークンをサポート -->
+        <oauth2:client-credentials />  <!-- クライアントクレデンシャルグラントをサポート -->
+        <oauth2:password authentication-manager-ref="clientAuthenticationManager"/>  <!-- リソースオーナパスワードクレデンシャルグラントをサポート -->
+    </oauth2:authorization-server>
+
+    <bean id="checkTokenEndpoint"
+        class="org.springframework.security.oauth2.provider.endpoint.CheckTokenEndpoint">
+        <constructor-arg ref="tokenServices" />
+        <!-- ↓で定義しているCustomAccessTokenConverterのBeanを指定することでCustomAccessTokenConverterとCustomUserTokenConverterに追加した独自項目をリソースサーバに連携できる -->
+        <property name="accessTokenConverter" ref="accessTokenConverter" />
+    </bean>
+
+    <bean id="accessTokenConverter"
+        class="todo.oauth.converter.CustomAccessTokenConverter" >
+        <!-- CustomUserTokenConverterのBeanを指定 -->
+        <property name="userTokenConverter">
+            <bean class="todo.oauth.converter.CustomUserTokenConverter" />
+        </property>
+    </bean>
+
+    <!-- スコープの認可処理を行う ApprovalStoreUserApprovalHandler をBean定義 -->
+    <bean id="userApprovalHandler"
+        class="org.springframework.security.oauth2.provider.approval.ApprovalStoreUserApprovalHandler">
+        <property name="clientDetailsService" ref="clientDetailsService"/>
+        <!-- approvalStoreプロパティ : JdbcApprovalStore のBeanを指定 -->
+        <property name="approvalStore" ref="approvalStore"/>
+        <!-- requestFactoryプロパティ : DefaultOAuth2RequestFactory のBeanを指定 -->
+        <property name="requestFactory" ref="requestFactory"/>
+        <!-- 認可情報の有効期間(秒) -->
+        <property name="approvalExpiryInSeconds" value="3200" />
+    </bean>
+
+    <!-- 認可情報をDBで管理する JdbcApprovalStore をBean定義 -->
+    <bean id="approvalStore"
+        class="org.springframework.security.oauth2.provider.approval.JdbcApprovalStore">
+        <!-- 認可情報格納用のテーブルに接続するためのデータソースを指定 -->
+        <constructor-arg ref="dataSource"/>
+    </bean>
+
+    <bean id="requestFactory"
+        class="org.springframework.security.oauth2.provider.request.DefaultOAuth2RequestFactory">
+        <constructor-arg ref="clientDetailsService"/>
+    </bean>
+
+    <!-- tokenServicesのクラスにDefaultTokenServicesを指定 -->
+    <!-- 共有DBを介してリソースサーバとアクセストークンの連携を行う場合、リソースサーバでも本設定を行う -->
+    <!-- HTTPアクセスで共有する場合もDefaultTokenServicesをビーン定義する -->
+    <bean id="tokenServices"
+        class="org.springframework.security.oauth2.provider.token.DefaultTokenServices">
+        <!-- アクセストークンを管理するトークンストアとして、 ↓で定義したtokenStoreを指定 -->
+        <property name="tokenStore" ref="tokenStore" />
+        <property name="clientDetailsService" ref="clientDetailsService" />
+        <!-- リフレッシュトークンを有効にする場合は supportRefreshToken 属性に true を指定 -->
+        <property name="supportRefreshToken" value="true" />
+    </bean>
+
+    <!-- トークンストアとして  JdbcTokenStore をBean定義 -->
+    <bean id="tokenStore"
+        class="org.springframework.security.oauth2.provider.token.store.JdbcTokenStore">
+        <!-- コンストラクタには、トークン情報格納用のテーブルに接続するためのデータソースを指定 -->
+        <constructor-arg ref="dataSource" />
+    </bean>
+    
+    <!-- クライアントを認証するための AuthenticationManager をBean定義 -->
+    <sec:authentication-manager id="clientAuthenticationManager">
+        <!--  ClientDetailsUserDetailsService のBeanを指定 -->
+        <sec:authentication-provider user-service-ref="clientDetailsUserService" >
+        <!-- パスワードのハッシュ化に使用する PasswordEncoder のBeanを指定 -->
+            <sec:password-encoder ref="passwordEncoder"/>
+        </sec:authentication-provider>
+    </sec:authentication-manager>
+
+    <!--  ClientDetailsUserDetailsService をBean定義 -->
+    <bean id="clientDetailsUserService"
+        class="org.springframework.security.oauth2.provider.client.ClientDetailsUserDetailsService">
+        <!-- データベースからクライアント情報を取得する OAuthClientDetailsService のBeanを指定 -->
+        <constructor-arg ref="clientDetailsService" />
+    </bean>
+    
+    <!-- 認可コードをDB管理するビーンを登録 -->
+    <bean id="authorizationCodeServices"
+        class="org.springframework.security.oauth2.provider.code.JdbcAuthorizationCodeServices">
+        <!-- コンストラクタに認可コード格納用のテーブルに接続するためのデータソースを指定 -->
+        <constructor-arg ref="dataSource"/>
+    </bean>
+
+    <tx:advice id="oauthTransactionAdvice">
+        <tx:attributes>
+            <tx:method name="*"/>
+        </tx:attributes>
+    </tx:advice>
+
+    <aop:config>
+        <!-- 認可コードを操作する各メソッドにトランザクション境界を設定 -->
+        <aop:pointcut id="authorizationOperation"
+            expression="execution(* org.springframework.security.oauth2.provider.code.AuthorizationCodeServices.*(..))"/>
+        <!-- 認可情報を操作する各メソッドにトランザクション境界を設定 -->
+        <aop:pointcut id="approvalOperation"
+            expression="execution(* org.springframework.security.oauth2.provider.approval.UserApprovalHandler.*(..))"/>
+        <aop:advisor pointcut-ref="authorizationOperation" advice-ref="oauthTransactionAdvice"/>
+        <aop:advisor pointcut-ref="approvalOperation" advice-ref="oauthTransactionAdvice"/>
+    </aop:config>
+</beans>

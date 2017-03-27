@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:sec="http://www.springframework.org/schema/security"
+    xmlns:oauth2="http://www.springframework.org/schema/security/oauth2"
+    xmlns:aop="http://www.springframework.org/schema/aop"
+    xsi:schemaLocation="
+        http://www.springframework.org/schema/security http://www.springframework.org/schema/security/spring-security.xsd
+        http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans.xsd
+        http://www.springframework.org/schema/security/oauth2 http://www.springframework.org/schema/security/spring-security-oauth2.xsd
+        http://www.springframework.org/schema/aop http://www.springframework.org/schema/aop/spring-aop.xsd
+    ">
+    <!-- 
+    <bean id="customErrorHandler" class="todo.oauth.app.common.error.CustomErrorHandler" />
+     -->
+    <!-- <oauth2:client> タグを使用することで、 OAuth2ClientContextFilter のBeanが定義される -->
+    <!-- id : ビーンID -->
+    <oauth2:client id="oauth2ClientContextFilter" />
+    
+    <!-- 認可コードグラントの設定ここから -->
+
+    <!-- id リソースのBean ID。 -->
+    <!-- client-id : 認可サーバにてクライントを識別するID -->
+    <!-- client-secret : 認可サーバにてクライアントの認証に用いるパスワード -->
+    <!-- type : グラントタイプ。認可コードグラントの場合 authorization_code を指定 -->
+    <!-- scope : 認可を要求するスコープをカンマ区切りで列挙。省略時は認可サーバにおいてクライアントに対して設定しているスコープを全て要求 -->
+    <!-- access-token-uri : アクセストークンの発行を依頼するための認可サーバのエンドポイントのURL -->
+    <!-- user-authorization-uri : リソースオーナの認可を得るための認可サーバのエンドポイントのURL -->
+    <!-- client-authentication-scheme : アクセストークン取得時のクライアント認証方法を指定する方法 -->
+    <!-- header : Authorizationヘッダを使用したBasic認証。デフォルト値, query : リクエスト時のURLクエリパラメータを使用した認証, form : リクエスト時のボディパラメータを使用した認証 -->
+    <oauth2:resource id="todoAuthCodeGrantResource" client-id="testClient"
+        client-secret="demo"
+        type="authorization_code"
+        access-token-uri="${auth.serverUrl}/oauth/token"
+        user-authorization-uri="${auth.serverUrl}/oauth/authorize"
+        scope="READ,WRITE"
+        client-authentication-scheme="header"/>
+
+    <!-- 認可コードグラント用のOAuth2RestTemplate を定義 -->
+    <oauth2:rest-template id="todoAuthCodeGrantResourceRestTemplate" resource="todoAuthCodeGrantResource" >
+ <!--        <property name="errorHandler" ref="customErrorHandler" /> -->
+    </oauth2:rest-template>
+
+    <!-- 認可コードグラントの設定ここまで -->
+    <!-- リソースオーナパスワードクレデンシャルグラントの設定ここから -->
+
+    <!-- class : OAuth2RestTemplate のリソースとするBeanを指定 -->
+    <!-- scope : スコープ範囲をHTTPSessionとする -->
+    <!-- <aop:scoped-proxy> : SessionスコープのBeanをSingletonのBeanである OAuth2RestTemplate にインジェクションする -->
+    <!-- SessionスコープのBeanよりSingletonのBeanの方がライフサイクルが長いため必要 -->
+    <!-- clientId : 認可サーバにてクライントを識別するIDを設定 -->
+    <!-- clientSecret : 認可サーバにてクライアントの認証に用いるパスワードを設定 -->
+    <!-- accessTokenUri : アクセストークンの発行を依頼するための認可サーバのエンドポイントのURLを指定  -->
+    <!-- scope : 認可を要求するスコープの一覧を設定 -->
+    <bean id="todoPasswordGrantResource" class="org.springframework.security.oauth2.client.token.grant.password.ResourceOwnerPasswordResourceDetails"
+        scope="session">
+        <aop:scoped-proxy />
+        <property name="clientId" value="testClient" />
+        <property name="clientSecret" value="demo" />
+        <property name="accessTokenUri" value="${auth.serverUrl}/oauth/token" />
+        <property name="scope" value="READ+WRITE" />
+        <property name="username" value="testClient" />
+        <property name="password" value="demo" />
+    </bean>
+
+    <!-- リソースオーナパスワードクレデンシャルグラント用のOAuth2RestTemplate を定義 -->
+    <oauth2:rest-template id="todoPasswordGrantResourceRestTemplate" resource="todoPasswordGrantResource" />
+
+    <!-- リソースオーナパスワードクレデンシャルグラントの設定ここまで -->
+
+    <!-- クライアントクレデンシャルグラントの設定ここから -->
+
+    <!-- id リソースのBean ID。 -->
+    <!-- client-id : 認可サーバにてクライントを識別するID -->
+    <!-- client-secret : 認可サーバにてクライアントの認証に用いるパスワード -->
+    <!-- type : グラントタイプ。クライアントクレデンシャルグラントの場合 client_credentials を指定 -->
+    <!-- access-token-uri : アクセストークンの発行を依頼するための認可サーバのエンドポイントのURL -->
+    <oauth2:resource id="todoClientGrantResource" client-id="testClient"
+        client-secret="demo"
+        type="client_credentials"
+        access-token-uri="${auth.serverUrl}/oauth/token" />
+
+    <oauth2:rest-template id="todoClientGrantResourceRestTemplate" resource="todoClientGrantResource" />
+
+    <!-- クライアントクレデンシャルグラントの設定ここまで -->
+
+    <!-- 認可サーバにトークン取り消し要求を行うための RestTemplate をBean定義 -->
+    <bean id="revokeRestTemplate" class="org.springframework.web.client.RestTemplate">
+        <!-- Basic認証用のリクエストヘッダを設定するため、 interceptors プロパティに ClientHttpRequestInterceptor の実装クラスを指定 -->
+        <property name="interceptors">
+            <list>
+                <ref bean="basicAuthInterceptor" />
+            </list>
+        </property>
+    </bean>
+
+    <bean id="basicAuthInterceptor" class="todo.oauth.app.BasicAuthInterceptor" />
+
+</beans>

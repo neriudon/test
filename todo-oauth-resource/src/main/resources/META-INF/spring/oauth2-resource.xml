@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+        xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+        xmlns:oauth2="http://www.springframework.org/schema/security/oauth2"
+        xmlns:sec="http://www.springframework.org/schema/security"
+        xsi:schemaLocation="http://www.springframework.org/schema/security
+            http://www.springframework.org/schema/security/spring-security.xsd
+            http://www.springframework.org/schema/security/oauth2
+            http://www.springframework.org/schema/security/spring-security-oauth2.xsd
+            http://www.springframework.org/schema/beans
+            http://www.springframework.org/schema/beans/spring-beans.xsd">
+
+    <!-- OAuth2AuthenticationEntryPoint のBeanを指定 -->
+    <sec:http pattern="/api/v1/todos/**" create-session="stateless"
+        entry-point-ref="oauth2AuthenticationEntryPoint">
+        <!-- OAuth2AccessDeniedHandler のBeanを設定 -->
+        <sec:access-denied-handler ref="oauth2AccessDeniedHandler"/>
+        <!-- CSRFを無効にする。チュートリアルでも無効にしている -->
+        <!-- CSRFはリクエストパラメータで送られるCSRFTokenとSessionに保存されたCSRFTokenを比較するというロジックで、Sessionに依存している -->
+        <sec:csrf disabled="true"/>
+        <!-- expression-handler には OAuth2WebSecurityExpressionHandler のBeanを指定 -->
+        <sec:expression-handler ref="oauth2ExpressionHandler"/>
+        <!-- intercept-url を使用してリソースに対してスコープによるアクセスポリシーを定義 -->
+        <!-- pattern : 保護したいリソースのパスのパターンを指定。本実装例では /api/v1/todos/ -->
+        <!-- method : リソースのHTTPメソッドを指定 -->
+        <!-- access : リソースへのアクセスを認可するscopeを指定。設定値は大文字、小文字を区別 -->
+        <!--  hasScope(scope) 認可されているスコープと引数のスコープが一致する場合に true -->
+        <sec:intercept-url pattern="/**" method="GET"
+            access="#oauth2.hasScope('READ')" />
+        <sec:intercept-url pattern="/**" method="POST"
+            access="#oauth2.hasScope('WRITE')" />
+        <sec:intercept-url pattern="/**" method="PUT"
+            access="#oauth2.hasScope('WRITE')" />
+        <sec:intercept-url pattern="/**" method="DELETE"
+            access="#oauth2.hasScope('WRITE')" />
+        <!-- リソースサーバ用の認証フィルタを指定 -->
+        <sec:custom-filter ref="oauth2AuthenticationFilter"
+            before="PRE_AUTH_FILTER" />
+    </sec:http>
+
+    <!-- リソースサーバ用の AccessDeniedHandler を定義 -->
+    <bean id="oauth2AccessDeniedHandler"
+        class="org.springframework.security.oauth2.provider.error.OAuth2AccessDeniedHandler" />
+
+    <!-- OAuth用のエラー応答を行うための OAuth2AuthenticationEntryPoint をBean定義 -->
+    <bean id="oauth2AuthenticationEntryPoint"
+        class="org.springframework.security.oauth2.provider.error.OAuth2AuthenticationEntryPoint" />
+
+    <!-- リソースサーバ用のServletFilterを定義 -->
+    <!-- resource-serverでOAuth2AuthenticationProcessingFilterがロードされる -->
+    <!-- id : ビーンID -->
+    <!-- resource-id : サーバが提供するリソースのID -->
+    <!-- token-services-ref : TokenServicesのID -->
+    <!-- entry-point-ref : OAuth2AuthenticationEntryPointのBeanを指定 -->
+    <oauth2:resource-server id="oauth2AuthenticationFilter" resource-id="todoResource"
+        token-services-ref="tokenServices" entry-point-ref="oauth2AuthenticationEntryPoint" />
+
+    <!--  tokenServices のクラスに DefaultTokenServices を指定する。 -->
+    <!-- アクセストークンをDBで共有する場合は、管理するトークンストアとして、 tokenStore プロパティにTokenStore を指定 -->
+    <!-- 
+    <bean id="tokenServices"
+        class="org.springframework.security.oauth2.provider.token.DefaultTokenServices">
+        <property name="tokenStore" ref="tokenStore" />
+    </bean>
+     -->
+    <!--  tokenServices のクラスにRemoteTokenServices を指定する。 -->
+    <!-- アクセストークンをエンドポイントで共有する場合は、チェックトークンエンドポイントにアクセスするためのURLをcheckTokenEndpointUrlプロパティに設定 -->
+    <bean id="tokenServices"
+        class="org.springframework.security.oauth2.provider.token.RemoteTokenServices">
+        <property name="checkTokenEndpointUrl" value="${auth.serverUrl}/oauth/check_token" />
+        <property name="accessTokenConverter" ref="accessTokenConverter" />
+    </bean>
+    
+    <bean id="accessTokenConverter"
+        class="org.springframework.security.oauth2.provider.token.DefaultAccessTokenConverter">
+        <!-- CustomUserTokenConverterクラスを指定することで、ユーザ名以外の情報をアノテーション@AuthenticationPrincipalで取得できるようになる -->
+        <property name="userTokenConverter">
+            <bean class="todo.oauth.converter.CustomUserTokenConverter"/>
+        </property>
+    </bean>
+     <!-- 
+    <bean id="tokenStore"
+        class="org.springframework.security.oauth2.provider.token.store.JdbcTokenStore">
+        <constructor-arg ref="dataSource" />
+    </bean>
+     -->
+    <!-- OAuth2WebSecurityExpressionHandler をBean定義。OAuth 2.0の認可設定を行うためのSpELがサポートされる -->
+    <oauth2:web-expression-handler id="oauth2ExpressionHandler" /> 
+</beans>
